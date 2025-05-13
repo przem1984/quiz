@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="UTF-8" />
+<title>Quiz erotyczny z Firebase</title>
+<style>
+  body { font-family: Arial, sans-serif; max-width: 700px; margin: auto; padding: 20px; }
+  h2 { text-align: center; color: #b22222; }
+  .question { font-weight: bold; margin-bottom: 10px; }
+  .options label { display: block; margin: 5px 0; cursor: pointer; }
+  button { margin-top: 15px; padding: 10px 20px; background: #b22222; color: white; border: none; border-radius: 5px; cursor: pointer; }
+  #comparison { margin-top: 20px; background: #f9e6e6; padding: 15px; border-radius: 8px; border: 1px solid #b22222; }
+</style>
+</head>
+<body>
+
+<h2>Quiz erotyczny</h2>
+
+<div>
+  <label>Kod quizu:</label>
+  <input type="text" id="quizIdInput" placeholder="np. quiz123" />
+  <label>Twoja rola (1 lub 2):</label>
+  <input type="number" id="personInput" min="1" max="2" />
+  <button id="startBtn">Start</button>
+</div>
+
+<div id="quizArea" style="display:none;">
+  <div id="questionContainer" class="question"></div>
+  <div id="optionsContainer"></div>
+  <button id="submitBtn">Zatwierdź odpowiedź</button>
+  <div id="status"></div>
+  <div id="comparison"></div>
+</div>
+
+<!-- Firebase -->
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+
+<script>
+const firebaseConfig = {
+  apiKey: "AIzaSyBiLuLGRpY7yF4Gnk6o3H-SvQoMg0IrWFY",
+  authDomain: "quiz-9f125.firebaseapp.com",
+  databaseURL: "https://quiz-9f125-default-rtdb.europe-west1.firebasedatabase.app",
+  projectId: "quiz-9f125",
+  storageBucket: "quiz-9f125.firebasestorage.app",
+  messagingSenderId: "183009998503",
+  appId: "1:183009998503:web:e79bbb03f86e6665324d82",
+  measurementId: "G-Z50KKDDBBS"
+
+};
+
+firebase.initializeApp(quiz-9f125);
+const db = firebase.database();
+
+const quizIdInput = document.getElementById('quizIdInput');
+const personInput = document.getElementById('personInput');
+const startBtn = document.getElementById('startBtn');
+const quizArea = document.getElementById('quizArea');
+const questionContainer = document.getElementById('questionContainer');
+const optionsContainer = document.getElementById('optionsContainer');
+const submitBtn = document.getElementById('submitBtn');
+const statusDiv = document.getElementById('status');
+const comparisonDiv = document.getElementById('comparison');
+
+let quizId = '';
+let person = 1;
+let questions = [];
+let currentQuestionIndex = 0;
+let answers = {};
+
+startBtn.onclick = async () => {
+  quizId = quizIdInput.value.trim();
+  person = Number(personInput.value);
+  if (!quizId || (person !== 1 && person !== 2)) {
+    alert('Wpisz poprawny kod quizu i rolę (1 lub 2)');
+    return;
+  }
+  startBtn.disabled = true;
+  quizIdInput.disabled = true;
+  personInput.disabled = true;
+  quizArea.style.display = 'block';
+  comparisonDiv.innerHTML = '';
+  statusDiv.textContent = '';
+  answers = {};
+  currentQuestionIndex = 0;
+  await loadQuestions();
+  await loadAnswers();
+  renderQuestion();
+};
+
+async function loadQuestions() {
+  const snapshot = await db.ref('questions').get();
+  if (snapshot.exists()) {
+    const data = snapshot.val();
+    questions = Object.values(data);
+  } else {
+    alert('Brak pytań w bazie!');
+  }
+}
+
+async function loadAnswers() {
+  const snapshot = await db.ref(`quizzes/${quizId}/${person}/answers`).get();
+  if (snapshot.exists()) {
+    answers = snapshot.val();
+  } else {
+    answers = {};
+  }
+}
+
+function renderQuestion() {
+  if (currentQuestionIndex >= questions.length) {
+    statusDiv.textContent = 'Koniec quizu. Zapisuję odpowiedzi i pokazuję porównanie...';
+    saveAnswers().then(showComparison);
+    questionContainer.textContent = '';
+    optionsContainer.innerHTML = '';
+    submitBtn.disabled = true;
+    return;
+  }
+  const q = questions[currentQuestionIndex];
+  questionContainer.textContent = `Pytanie ${currentQuestionIndex + 1}: ${q.question}`;
+  optionsContainer.innerHTML = '';
+  q.options.forEach(opt => {
+    const label = document.createElement('label');
+    const checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    checkbox.name = 'option';
+    checkbox.value = opt;
+    label.appendChild(checkbox);
+    label.appendChild(document.createTextNode(' ' + opt));
+    optionsContainer.appendChild(label);
+  });
+  submitBtn.disabled = false;
+  statusDiv.textContent = `Odpowiada osoba ${person}`;
+}
+
+submitBtn.onclick = () => {
+  const selected = [...document.querySelectorAll('input[name="option"]:checked')].map(i => i.value);
+  if (selected.length === 0) {
+    alert('Wybierz co najmniej jedną odpowiedź!');
+    return;
+  }
+  answers[currentQuestionIndex] = selected;
+  currentQuestionIndex++;
+  renderQuestion();
+};
+
+async function saveAnswers() {
+  await db.ref(`quizzes/${quizId}/${person}/answers`).set(answers);
+}
+
+async function showComparison() {
+  const otherPerson = person === 1 ? 2 : 1;
+  const snapshot = await db.ref(`quizzes/${quizId}/${otherPerson}/answers`).get();
+  if (!snapshot.exists()) {
+    statusDiv.textContent = `Oczekiwanie na odpowiedzi osoby ${otherPerson}...`;
+    return;
+  }
+  const otherAnswers = snapshot.val();
+  let html = '<h3>Porównanie odpowiedzi:</h3>';
+  let matches = 0;
+  for (let i = 0; i < questions.length; i++) {
+    const p1 = person === 1 ? answers[i] || [] : otherAnswers[i] || [];
+    const p2 = person === 2 ? answers[i] || [] : otherAnswers[i] || [];
+    const match = arraysEqual(p1, p2);
+    if (match) matches++;
+    html += `<p><strong>Pytanie ${i + 1}:</strong> ${questions[i].question}<br>
+      Osoba 1: ${(person === 1 ? p1 : p2).join(', ') || '-'}<br>
+      Osoba 2: ${(person === 2 ? p1 : p2).join(', ') || '-'}<br>
+      Zgodność: <span style="color:${match ? 'green' : 'red'}">${match ? 'TAK' : 'NIE'}</span></p>`;
+  }
+  html += `<h4>Łączna zgodność: ${matches} / ${questions.length}</h4>`;
+  comparisonDiv.innerHTML = html;
+  statusDiv.textContent = 'Quiz zakończony!';
+}
+
+function arraysEqual(a, b) {
+  if (!a || !b) return false;
+  if (a.length !== b.length) return false;
+  const sortedA = [...a].sort();
+  const sortedB = [...b].sort();
+  return sortedA.every((v, i) => v === sortedB[i]);
+}
+</script>
+
+</body>
+</html>
